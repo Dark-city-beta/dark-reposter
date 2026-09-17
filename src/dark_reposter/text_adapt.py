@@ -1,4 +1,4 @@
-from __future__ import annotations
+﻿from __future__ import annotations
 
 import re
 
@@ -9,6 +9,7 @@ CONTROL_TAGS = {
     "#draft",
     "#manual",
     "#xonly",
+    "#nox",
     "#nolinkedin",
     "#nothreads",
     "#nobluesky",
@@ -36,15 +37,18 @@ def extract_tags(text: str) -> set[str]:
 
 
 def remove_control_tags(text: str) -> str:
-    result = text
-    for tag in CONTROL_TAGS | set(NEGATIVE_PLATFORM_TAGS.values()):
+    result = text.replace("\r\n", "\n").replace("\r", "\n")
+    for tag in CONTROL_TAGS:
         result = re.sub(rf"(?<!\w){re.escape(tag)}\b", "", result, flags=re.IGNORECASE)
-    return normalize_text(result)
+    lines = [line.strip() for line in result.split("\n")]
+    cleaned = "\n".join(lines)
+    cleaned = re.sub(r"\n{3,}", "\n\n", cleaned)
+    return cleaned.strip()
 
 
 def target_platforms(text: str, configured: list[str]) -> list[str]:
     tags = extract_tags(text)
-    if "#noauto" in tags:
+    if "#noauto" in tags or "#draft" in tags:
         return []
     if "#xonly" in tags:
         return ["x"] if "x" in configured else []
@@ -59,99 +63,98 @@ def target_platforms(text: str, configured: list[str]) -> list[str]:
 
 def adapt_for_platform(text: str, platform: str, limit: int) -> str:
     clean = remove_control_tags(text)
-    if platform not in PLATFORMS:
-        return fit_to_limit(clean, limit)
-
     if len(clean) <= limit:
-        if platform == "linkedin":
-            return linkedin_style(clean, limit)
         return clean
 
-    if platform == "linkedin":
-        return linkedin_summary(clean, limit)
-    if platform in {"x", "bluesky", "mastodon"}:
-        return short_summary(clean, limit)
-    if platform == "threads":
-        return conversational_summary(clean, limit)
-    return fit_to_limit(clean, limit)
+    return smart_summary(clean, limit)
 
 
-def linkedin_style(text: str, limit: int) -> str:
-    if len(text) <= limit:
-        return text
-    return linkedin_summary(text, limit)
-
-
-def split_sentences(text: str) -> list[str]:
-    raw = re.split(r"(?<=[.!?…])\s+|\n+", text)
-    return [part.strip(" -•\t") for part in raw if part.strip(" -•\t")]
-
-
-def extract_hashtags(text: str, reserved: int) -> str:
+def extract_hashtags(text: str) -> list[str]:
     tags = []
+    seen = set()
     for tag in re.findall(r"(?<!\w)#[-_a-zA-Zа-яА-ЯёЁ0-9]+", text):
         if tag.lower() in CONTROL_TAGS:
             continue
-        if tag not in tags:
+        if tag.lower() not in seen:
+            seen.add(tag.lower())
             tags.append(tag)
-    result = " ".join(tags[:4])
-    return result if len(result) <= reserved else ""
+    return tags
 
 
-def short_summary(text: str, limit: int) -> str:
-    hashtags = extract_hashtags(text, 40)
-    reserve = len(hashtags) + (2 if hashtags else 0)
-    body_limit = max(40, limit - reserve)
+def smart_summary(text: str, limit: int) -> str:
+    urls = re.findall(r"https?://[^\s]+", text)
+    primary_url = urls[0] if urls else ""
 
-    sentences = split_sentences(re.sub(r"(?<!\w)#[-_a-zA-Zа-яА-ЯёЁ0-9]+", "", text))
-    picked: list[str] = []
-    for sentence in sentences:
-        candidate = " ".join(picked + [sentence])
-        if len(candidate) <= body_limit:
-            picked.append(sentence)
-        if len(picked) >= 2:
+    tags = extract_hashtags(text)
+
+    body_text = text
+    if primary_url:
+        body_text = body_text.replace(primary_url, "").strip()
+    for t in tags:
+        body_text = re.sub(rf"(?<!\w){re.escape(t)}\b", "", body_text).strip()
+
+    raw_lines = [
+        l.strip()
+        for l in body_text.splitlines()
+        if l.strip() and l.strip() not in {"⭐️ GitHub:", "GitHub:", "⭐️", "🔗", "Link:", "P.S."}
+    ]
+    if not raw_lines:
+        return fit_to_limit(text, limit)
+
+    header = raw_lines[0]
+    subsequent = raw_lines[1:]
+
+    link_part = f"\n\n🔗 {primary_url}" if primary_url else ""
+
+    best_candidate = ""
+    for max_tags in (3, 2, 1, 0):
+        selected_tags = tags[:max_tags]
+        tag_part = f"\n\n{' '.join(selected_tags)}" if selected_tags else ""
+        fixed_len = len(link_part) + len(tag_part)
+        budget = limit - fixed_len
+
+        if budget < len(header):
+            continue
+
+        body_elements = [header]
+        cur_len = len(header)
+
+        for line in subsequent:
+            is_section_hdr = line.endswith(":") or line.startswith(("⚡️", "🔥", "📌", "✨"))
+            if is_section_hdr:
+                continue
+
+            sep = "\n" if line.startswith(("•", "-", "*")) else "\n\n"
+            if cur_len + len(sep) + len(line) <= budget:
+                body_elements.append(line)
+                cur_len += len(sep) + len(line)
+            else:
+                sentences = re.split(r"(?<=[.!?…])\s+", line)
+                for s in sentences:
+                    s_sep = "\n\n"
+                    if cur_len + len(s_sep) + len(s) <= budget:
+                        body_elements.append(s)
+                        cur_len += len(s_sep) + len(s)
+
+        body_str = ""
+        for i, elem in enumerate(body_elements):
+            if i == 0:
+                body_str = elem
+            elif elem.startswith(("•", "-", "*")):
+                body_str += "\n" + elem
+            else:
+                body_str += "\n\n" + elem
+
+        candidate = f"{body_str}{link_part}{tag_part}".strip()
+        if len(candidate) <= limit:
+            best_candidate = candidate
             break
 
-    if not picked and sentences:
-        picked = [sentences[0]]
+    if not best_candidate:
+        cut = max(0, limit - len(link_part) - 4)
+        best_candidate = f"{header[:cut]}…{link_part}".strip()
 
-    body = " ".join(picked) if picked else text
-    body = fit_to_limit(body, body_limit)
-    result = f"{body}\n\n{hashtags}".strip() if hashtags else body
-    return fit_to_limit(result, limit)
-
-
-def conversational_summary(text: str, limit: int) -> str:
-    sentences = split_sentences(text)
-    if not sentences:
-        return fit_to_limit(text, limit)
-
-    first = sentences[0]
-    if len(sentences) > 1:
-        body = first + "\n\n" + " ".join(sentences[1:3])
-    else:
-        body = first
-    return fit_to_limit(body, limit)
-
-
-def linkedin_summary(text: str, limit: int) -> str:
-    sentences = split_sentences(text)
-    if len(text) <= limit:
-        return text
-    if not sentences:
-        return fit_to_limit(text, limit)
-
-    intro = sentences[0]
-    bullets = []
-    for sentence in sentences[1:5]:
-        point = fit_to_limit(sentence, 180)
-        if point:
-            bullets.append(f"• {point}")
-
-    result = intro
-    if bullets:
-        result += "\n\n" + "\n".join(bullets)
-    return fit_to_limit(result, limit)
+    return best_candidate
 
 
 def fit_to_limit(text: str, limit: int) -> str:
