@@ -1,0 +1,15 @@
+﻿[Unit]
+Description=DARK Reposter - Telegram autoposter to X, Bluesky, Mastodon, Threads & LinkedIn
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+WorkingDirectory=%h/dark-reposter
+ExecStart=%h/dark-reposter/run.sh
+Restart=always
+RestartSec=5
+TimeoutStopSec=10
+
+[Install]
+WantedBy=default.target
