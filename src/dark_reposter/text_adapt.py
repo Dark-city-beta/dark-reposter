@@ -32,13 +32,44 @@ def normalize_text(text: str) -> str:
     return re.sub(r"[ \t]+", " ", compact).strip()
 
 
+def extract_control_tags(text: str) -> set[str]:
+    """
+    Extracts operational directives (#noauto, #xonly, etc.).
+    Only matches tags at the end of the post or on standalone tag lines,
+    preventing false positives when control tags are mentioned in explanatory prose.
+    """
+    control_tags = set()
+    lines = [l.strip() for l in text.splitlines() if l.strip()]
+    if not lines:
+        return control_tags
+
+    for line in reversed(lines[-3:]):
+        tokens = line.split()
+        if not tokens:
+            continue
+        if all(t.startswith("#") or t in {",", ";", "|", "/", "-", "•", "*"} for t in tokens):
+            for t in tokens:
+                clean_tag = re.sub(r"[^\w#]", "", t).lower()
+                if clean_tag in CONTROL_TAGS:
+                    control_tags.add(clean_tag)
+        else:
+            for t in reversed(tokens):
+                clean_tag = re.sub(r"[^\w#]", "", t).lower()
+                if clean_tag in CONTROL_TAGS:
+                    control_tags.add(clean_tag)
+                else:
+                    break
+    return control_tags
+
+
 def extract_tags(text: str) -> set[str]:
     return {tag.lower() for tag in re.findall(r"(?<!\w)#[-_a-zA-Zа-яА-ЯёЁ0-9]+", text)}
 
 
 def remove_control_tags(text: str) -> str:
+    tags = extract_control_tags(text)
     result = text.replace("\r\n", "\n").replace("\r", "\n")
-    for tag in CONTROL_TAGS:
+    for tag in tags:
         result = re.sub(rf"(?<!\w){re.escape(tag)}\b", "", result, flags=re.IGNORECASE)
     lines = [line.strip() for line in result.split("\n")]
     cleaned = "\n".join(lines)
@@ -47,7 +78,7 @@ def remove_control_tags(text: str) -> str:
 
 
 def target_platforms(text: str, configured: list[str]) -> list[str]:
-    tags = extract_tags(text)
+    tags = extract_control_tags(text)
     if "#noauto" in tags or "#draft" in tags:
         return []
     if "#xonly" in tags:

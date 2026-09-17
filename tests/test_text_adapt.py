@@ -6,7 +6,6 @@ from dark_reposter.text_adapt import adapt_for_platform, remove_control_tags, ta
 class TextAdaptTests(unittest.TestCase):
     def test_remove_control_tags(self):
         self.assertNotIn("#noauto", remove_control_tags("hello #noauto"))
-        self.assertNotIn("#xonly", remove_control_tags("test #xonly message"))
 
     def test_target_platforms_xonly(self):
         self.assertEqual(target_platforms("hello #xonly", ["x", "linkedin"]), ["x"])
