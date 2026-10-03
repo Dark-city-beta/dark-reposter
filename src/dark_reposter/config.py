@@ -49,6 +49,7 @@ class Settings:
     log_level: str = "INFO"
     limits: dict[str, int] = field(default_factory=dict)
     data_dir: Path = Path("./data")
+    telegram_proxy: str | None = None
 
     @classmethod
     def from_env(cls) -> "Settings":
@@ -87,6 +88,7 @@ class Settings:
             strict_media=_bool("STRICT_MEDIA", True),
             log_level=os.getenv("LOG_LEVEL", "INFO").strip().upper() or "INFO",
             limits=limits,
+            telegram_proxy=os.getenv("TELEGRAM_PROXY", "http://127.0.0.1:8769").strip() or None,
         )
 
     def validate_for_runtime(self) -> None:

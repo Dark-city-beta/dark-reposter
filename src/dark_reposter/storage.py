@@ -49,6 +49,21 @@ class Storage:
                 """
             )
 
+    def is_already_processed(self, chat_id: int | str, message_ids: list[int]) -> bool:
+        if not message_ids:
+            return False
+        ids_json = json.dumps(sorted(message_ids), ensure_ascii=False)
+        with self._connect() as conn:
+            row = conn.execute(
+                """
+                SELECT id FROM posts
+                WHERE chat_id = ? AND message_ids = ?
+                LIMIT 1
+                """,
+                (str(chat_id), ids_json),
+            ).fetchone()
+            return row is not None
+
     def save_post(self, post: TelegramPost) -> int:
         media = [
             {
@@ -67,7 +82,7 @@ class Storage:
                 """,
                 (
                     str(post.chat_id),
-                    json.dumps(post.message_ids, ensure_ascii=False),
+                    json.dumps(sorted(post.message_ids), ensure_ascii=False),
                     post.text,
                     json.dumps(media, ensure_ascii=False),
                     post.created_at.isoformat(),

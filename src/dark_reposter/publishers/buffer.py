@@ -1,5 +1,4 @@
-from __future__ import annotations
-
+import asyncio
 import logging
 from typing import Any
 
@@ -42,13 +41,26 @@ class BufferPublisher:
         if not channel_id:
             return PublishResult(platform=post.platform, ok=False, error="No Buffer channel id configured")
 
-        try:
-            data = await self._create_post(channel_id=channel_id, text=post.text, media_urls=post.media_urls)
-            remote_id = extract_post_id(data)
-            return PublishResult(platform=post.platform, ok=True, remote_id=remote_id)
-        except Exception as exc:  # noqa: BLE001
-            logger.exception("Buffer publish failed for %s", post.platform)
-            return PublishResult(platform=post.platform, ok=False, error=str(exc))
+        last_error = None
+        for attempt in range(1, 4):
+            try:
+                data = await self._create_post(channel_id=channel_id, text=post.text, media_urls=post.media_urls)
+                remote_id = extract_post_id(data)
+                return PublishResult(platform=post.platform, ok=True, remote_id=remote_id)
+            except Exception as exc:  # noqa: BLE001
+                last_error = exc
+                if attempt < 3:
+                    logger.warning(
+                        "Buffer publish attempt %d failed for %s (%s), retrying in %ds...",
+                        attempt,
+                        post.platform,
+                        exc,
+                        2 * attempt,
+                    )
+                    await asyncio.sleep(2 * attempt)
+                else:
+                    logger.exception("Buffer publish failed for %s after %d attempts", post.platform, attempt)
+        return PublishResult(platform=post.platform, ok=False, error=str(last_error))
 
     async def _create_post(self, channel_id: str, text: str, media_urls: list[str]) -> dict[str, Any]:
         query = """

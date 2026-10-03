@@ -1,4 +1,4 @@
-﻿<div align="center">
+<div align="center">
 
 # 🛰️ DARK Reposter
 
@@ -74,6 +74,9 @@
        ▼       ▼       ▼
      [ X ]  [Bluesky] [Mastodon] [Threads] [LinkedIn]
 ```
+
+> 📖 **Детальная техническая спецификация:** подробный разбор принципа работы, всех подключений, потоков данных и задействованных соцсетей описан в [`docs/TECHNICAL_SPECIFICATION.md`](docs/TECHNICAL_SPECIFICATION.md).  
+> 💡 **Живой статус в Telegram:** отправьте команду `/status` или любое сообщение боту `@dark_reposter_bot` в личные сообщения для получения актуальной сводки о подключённых каналах и режиме работы.
 
 ---
 
